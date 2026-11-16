@@ -1,4 +1,4 @@
- # Wisdom — Independent AI Docker Image
+# Wisdom — Independent AI Docker Image
 FROM nvidia/cuda:12.8.1-cudnn-runtime-ubuntu24.04
 
 # Wisdom's runtime environment
@@ -80,7 +80,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     supervisor \
     ffmpeg \
+    build-essential \
+    python3-dev \
     && rm -rf /var/lib/apt/lists/*
+
+# Install AWS CLI for independent backups
+RUN curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip \
+    && python3 -m zipfile -e /tmp/awscliv2.zip /tmp/awscli-install \
+    && chmod -R u+x /tmp/awscli-install/aws \
+    && /tmp/awscli-install/aws/install \
+    && rm -rf /tmp/awscliv2.zip /tmp/awscli-install \
+    && aws --version
 
 # Create separate Python environments for Wisdom's services
 RUN python3 -m venv /opt/vllm-venv \
@@ -96,6 +106,11 @@ RUN /opt/vllm-venv/bin/pip install --no-cache-dir \
 
 RUN /opt/vllm-venv/bin/pip install --no-cache-dir \
     "vllm==0.19.0"
+
+# Preserve Wisdom's working Mistral tokenizer compatibility
+RUN /opt/vllm-venv/bin/pip install --no-cache-dir --no-deps \
+    "mistral-common==1.11.7" \
+    && /opt/vllm-venv/bin/pip check
 
 # Install Wisdom's Open WebUI
 RUN /app/venv/bin/pip install --no-cache-dir \

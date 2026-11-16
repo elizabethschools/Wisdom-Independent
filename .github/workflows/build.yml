@@ -2,13 +2,22 @@ name: Build Independent Wisdom
 
 on:
   workflow_dispatch:
+    inputs:
+      mode:
+        description: "Choose whether to build or validate Wisdom"
+        required: true
+        default: validate
+        type: choice
+        options:
+          - validate
+          - build
 
 permissions:
   contents: read
   packages: write
 
 jobs:
-  build:
+  wisdom:
     runs-on: ubuntu-latest
 
     steps:
@@ -23,9 +32,58 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and publish Independent Wisdom
+        if: inputs.mode == 'build'
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
           push: true
           tags: ghcr.io/elizabethschools/wisdom-independent:independent-test
+
+      - name: Pull Independent Wisdom
+        run: |
+          docker pull ghcr.io/elizabethschools/wisdom-independent:independent-test
+
+      - name: Validate Wisdom
+        run: |
+          docker run --rm -i \
+            --entrypoint /bin/bash \
+            -e WEBUI_SECRET_KEY=validation-only \
+            ghcr.io/elizabethschools/wisdom-independent:independent-test -s <<'EOF'
+
+          set -e
+
+          echo "=== WISDOM VALIDATION ==="
+
+          echo "Checking startup script..."
+          test -x /entrypoint.sh
+          bash -n /entrypoint.sh
+
+          echo "Checking Python environments..."
+          for v in /opt/vllm-venv /app/venv /opt/compactor-venv /opt/whisper-venv /opt/tts-venv; do
+            "$v/bin/python" --version
+            "$v/bin/pip" check
+          done
+
+          echo "Checking PyTorch and CUDA..."
+          /opt/vllm-venv/bin/python -c "import torch; print(torch.__version__); print(torch.version.cuda)"
+
+          echo "Checking vLLM..."
+          /opt/vllm-venv/bin/python -c "from importlib.metadata import version; print(version('vllm'))"
+
+          echo "Checking Open WebUI..."
+          /app/venv/bin/python -c "from importlib.metadata import version; print(version('open-webui'))"
+
+          echo "Checking supporting services..."
+          test -f /opt/compactor/main.py
+          test -f /opt/compactor/selftest.py
+          test -f /opt/compactor/backup.py
+          test -f /opt/stt/server.py
+          test -f /opt/tts/server.py
+
+          echo "Checking Supervisor configuration..."
+          /usr/bin/python3 -c "from supervisor.options import ServerOptions; o=ServerOptions(); o.realize(args=['-c','/etc/supervisor/conf.d/supervisord.conf'])"
+
+          echo "=== WISDOM VALIDATION PASSED ==="
+
+          EOF
